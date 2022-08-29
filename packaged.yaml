@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Test Stack
+Globals:
+  Api:
+    Cors:
+      AllowMethods: '''*'''
+      AllowHeaders: '''Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'''
+      AllowOrigin: '''*'''
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.192.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value:
+          Ref: AWS::StackName
+    Metadata:
+      SamResourceId: VPC
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value:
+          Ref: AWS::StackName
+    Metadata:
+      SamResourceId: InternetGateway
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId:
+        Ref: InternetGateway
+      VpcId:
+        Ref: VPC
+    Metadata:
+      SamResourceId: InternetGatewayAttachment
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock: 10.192.10.0/24
+      MapPublicIpOnLaunch: false
+    Metadata:
+      SamResourceId: PublicSubnet1
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock: 10.192.11.0/24
+      MapPublicIpOnLaunch: false
+    Metadata:
+      SamResourceId: PublicSubnet2
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${AWS::StackName} Public Routes
+    Metadata:
+      SamResourceId: PublicRouteTable
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId:
+        Ref: PublicRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId:
+        Ref: InternetGateway
+    Metadata:
+      SamResourceId: DefaultPublicRoute
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: PublicRouteTable
+      SubnetId:
+        Ref: PublicSubnet1
+    Metadata:
+      SamResourceId: PublicSubnet1RouteTableAssociation
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: PublicRouteTable
+      SubnetId:
+        Ref: PublicSubnet2
+    Metadata:
+      SamResourceId: PublicSubnet2RouteTableAssociation
+  PublicApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+      Name: drew-public-api
+    Metadata:
+      SamResourceId: PublicApi
+  VPCSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: VPCSG
+      SecurityGroupIngress:
+      - CidrIp: 10.192.0.0/16
+        IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        Description: all ports
+      SecurityGroupEgress:
+      - CidrIp: 10.192.0.0/16
+        IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        Description: all ports
+      VpcId:
+        Ref: VPC
+    Metadata:
+      SamResourceId: VPCSecurityGroup
+  YourFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: yourfunction.handler
+      Runtime: python3.7
+      CodeUri: s3://bucket-of-lambda/98ac578f0e0cd59ed3cbc64b5c89bca0
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+      - AWSLambdaBasicExecutionRole
+      - AmazonDynamoDBFullAccess
+      VpcConfig:
+        SecurityGroupIds:
+        - Ref: VPCSecurityGroup
+        SubnetIds:
+        - Ref: PublicSubnet1
+        - Ref: PublicSubnet2
+      Events:
+        ApiResource:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: PublicApi
+            Path: /{proxy+}
+            Method: any
+    Metadata:
+      SamResourceId: YourFunction
